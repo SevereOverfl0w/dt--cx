@@ -1,5 +1,7 @@
 = Datomic->Crux Live converter
 
+WARNING: This is alpha software, consider carefully before using.  However it has covered some common ground, so may capture more cases than a new rewrite would.
+
 == Rationale
 
 If you have a pre-existing system utilizing Datomic, it's a big requirement that you migrate in a single shot to another database.
