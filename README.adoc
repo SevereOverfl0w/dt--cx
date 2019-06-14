@@ -11,7 +11,14 @@ A live Datomic to Crux sync can happen for entities via REPL interactions.
 
 == API
 
-TBD
+The main namespace is `io.dominic.datomic->crux.core`.
+The conventional require is `[io.dominic.datomic->crux.core :as datomic->crux]`.
+
+Notable functions:
+
+`wrap-datomic-queue`:: This will wrap the result of `(d/tx-report-queue conn)` into a manifold stream appropriate for passing to other functions.  The purpose of this is to allow multiple subscribers to the datomic stream, you may not want to use this if you for example want to wrap into a manifold pubsub bus.
+`subscribe-datomic`:: Takes a `stream`, `conn`, and `system` (Crux).  This will listen for transactions in Datomic and use this to trigger a catch up in Crux.  The loop ends when the stream is closed.
+`subscribe-datomic-bg`:: Like `subscribe-datomic` but runs in a thread, you may not want to use this if you have an existing thread strategy.
 
 == Missing
 
