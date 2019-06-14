@@ -79,7 +79,7 @@
 
 (comment
   (crux/entity (crux/db system) (progress-id (uri conn)))
-  (convert-next 100 (uri conn) (d/db conn) (d/log conn) (crux/db system))
+  (dev/print-crux-txs (convert-next 100 (uri conn) (d/db conn) (d/log conn) (crux/db system)))
 
   (doseq [tx (convert-next 100 (uri conn) (d/db conn) (d/log conn) (crux/db system))]
     (crux/submit-tx system tx)))
