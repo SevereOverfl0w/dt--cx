@@ -1,0 +1,19 @@
+= Datomic->Crux Live converter
+
+== Rationale
+
+If you have a pre-existing system utilizing Datomic, it's a big requirement that you migrate in a single shot to another database.
+Due to the similarity of Datomic & Crux, it may be possible to do a live sync of Datomic & Crux in order to make an incremental migration.
+
+== Implemented
+
+A live Datomic to Crux sync can happen for entities via REPL interactions.
+
+== API
+
+TBD
+
+== Missing
+
+* Bidirectional sync
+* Tx time preservation
