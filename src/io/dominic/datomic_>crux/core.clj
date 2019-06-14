@@ -7,8 +7,15 @@
     [datomic Attribute]))
 
 (defn- dt-id->crux-id
-  [eid]
-  (java.net.URI. (str "datomic:mem://foo/" eid)))
+  [uri eid]
+  (java.net.URI. (str uri "/" eid)))
+
+(defn- progress-id
+  [uri]
+  (dt-id->crux-id uri "io.dominic.datomic--crux.core/progress"))
+
+(comment
+  (progress-id (uri conn)))
 
 (defn- merge-with-f
   "Like merge-with, but using custom key merge function"
@@ -31,12 +38,12 @@
 
 (defn- dt-transaction->crux-tx
   "Convert a single datomic transaction to a crux transaction"
-  [latest-db last-t transaction]
+  [uri latest-db last-t transaction]
   (let [{:keys [t data]} transaction
         db (d/as-of latest-db t)]
     (conj
       (mapv (fn [doc]
-              (let [crux-id (dt-id->crux-id (:db/id doc))]
+              (let [crux-id (dt-id->crux-id uri (:db/id doc))]
                 (if (seq (dissoc doc :db/id))
                   [:crux.tx/put crux-id (assoc doc :crux.db/id crux-id)]
                   [:crux.tx/delete crux-id])))
@@ -46,35 +53,35 @@
                       (map (fn [[k v]]
                              (let [attr (d/attribute db k)]
                                (if (= Attribute/TYPE_REF (:value-type (d/attribute db k)))
-                                 [k (invoke (comp dt-id->crux-id :db/id) attr v)]
+                                 [k (invoke #(dt-id->crux-id uri (:db/id %)) attr v)]
                                  [k v])))
                            doc)))
               (remove :db.install/partition
                       (remove :db/cardinality
                               (map #(d/pull db '[*] %) (distinct (map #(.e %) data)))))))
-      [:crux.tx/cas ::progress
+      [:crux.tx/cas (progress-id uri)
        (when last-t
-         {:crux.db/id ::progress
+         {:crux.db/id (progress-id uri)
           ::t last-t})
-       {:crux.db/id ::progress
+       {:crux.db/id (progress-id uri)
         ::t t}])))
 
 (defn- convert-next
   "Convert next n elements from the datomic db and log, preventing overlap with
   the existing progress in crux-db"
-  [n db log crux-db]
-  (let [last-t (::t (crux/entity crux-db ::progress))
+  [n uri db log crux-db]
+  (let [last-t (::t (crux/entity crux-db (progress-id uri)))
         tx-range (d/tx-range log (some-> last-t inc) nil)]
-    (map (fn [[{:keys [t]} transaction]] (dt-transaction->crux-tx db t transaction))
+    (map (fn [[{:keys [t]} transaction]] (dt-transaction->crux-tx uri db t transaction))
          (partition
            2 1
            (cons {:t last-t} (take n tx-range))))))
 
 (comment
-  (crux/entity (crux/db system) ::progress)
-  (convert-next 100 (d/db conn) (d/log conn) (crux/db system))
+  (crux/entity (crux/db system) (progress-id (uri conn)))
+  (convert-next 100 (uri conn) (d/db conn) (d/log conn) (crux/db system))
 
-  (doseq [tx (convert-next 100 (d/db conn) (d/log conn) (crux/db system))]
+  (doseq [tx (convert-next 100 (uri conn) (d/db conn) (d/log conn) (crux/db system))]
     (crux/submit-tx system tx)))
 
 (comment
@@ -194,24 +201,34 @@
     (s/connect queue s)
     s))
 
+(defprotocol DatomicConnInternals
+  (uri [conn]))
+
+(extend-type datomic.peer.LocalConnection
+  DatomicConnInternals
+  (uri [this]
+    (str "datomic:mem://" (.-dbname this))))
+
 (defn subscribe-datomic
   "Subscribe to manifold stream of the datomic tx-report-queue, on
   transactions, will write the new transactions to Crux."
-  [stream conn system]
-  (subscribe-stream
-    stream
-    (fn []
-      (doseq [tx (convert-next 100 (d/db conn) (d/log conn) (crux/db system))]
-        (crux/submit-tx system tx)))))
+  ([stream conn system]
+   (subscribe-datomic stream (uri conn) conn system))
+  ([stream uri conn system]
+   (subscribe-stream
+     stream
+     (fn []
+       (doseq [tx (convert-next 100 uri (d/db conn) (d/log conn) (crux/db system))]
+         (crux/submit-tx system tx))))))
 
 (defn subscribe-datomic-bg
   "Like subscribe-datomic but operates in a thread.  Thread will close when the
   stream closes."
-  [stream conn system]
+  [& args]
   (doto
     (Thread.
       (fn []
-        (subscribe-datomic stream conn system)))
+        (apply subscribe-datomic args)))
     (.start)))
 
 (comment
