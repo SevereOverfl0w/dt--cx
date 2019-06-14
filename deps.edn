@@ -3,4 +3,7 @@
  {com.datomic/datomic-free {:mvn/version "0.9.5697"}
   org.rocksdb/rocksdbjni {:mvn/version "5.17.2"}
   juxt/crux {:mvn/version "19.04-1.0.3-alpha"}
-  manifold {:mvn/version "0.1.8"}}}
+  manifold {:mvn/version "0.1.8"}}
+ 
+ :aliases
+ {:dev {:extra-paths ["dev"]}}}

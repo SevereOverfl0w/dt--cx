@@ -6,19 +6,7 @@
   (:import
     [datomic Attribute]))
 
-(defn datomic-conn
-  []
-  (d/create-database "datomic:mem://foo")
-  (d/connect "datomic:mem://foo"))
-
-(defn crux-system
-  []
-  (crux/start-standalone-system
-    {:kv-backend "crux.kv.rocksdb.RocksKv"
-     :event-log-dir "event"
-     :db-dir "db"}))
-
-(defn dt-id->crux-id
+(defn- dt-id->crux-id
   [eid]
   (java.net.URI. (str "datomic:mem://foo/" eid)))
 
@@ -34,13 +22,15 @@
        %1 %2)
     {} ms))
 
-(defn invoke
+(defn- invoke
+  "Invoke a function against a datomic attribute, distinguishing on it's cardinality."
   [f attr v]
   (if (= Attribute/CARDINALITY_MANY (.cardinality attr))
     (map f v)
     (f v)))
 
-(defn dt-transaction->crux-tx
+(defn- dt-transaction->crux-tx
+  "Convert a single datomic transaction to a crux transaction"
   [latest-db last-t transaction]
   (let [{:keys [t data]} transaction
         db (d/as-of latest-db t)]
@@ -69,7 +59,9 @@
        {:crux.db/id ::progress
         ::t t}])))
 
-(defn convert-next
+(defn- convert-next
+  "Convert next n elements from the datomic db and log, preventing overlap with
+  the existing progress in crux-db"
   [n db log crux-db]
   (let [last-t (::t (crux/entity crux-db ::progress))
         tx-range (d/tx-range log (some-> last-t inc) nil)]
@@ -79,7 +71,6 @@
            (cons {:t last-t} (take n tx-range))))))
 
 (comment
-  (partition 2 1 (cons {:t nil} (d/tx-range (d/log conn) nil nil)))
   (crux/entity (crux/db system) ::progress)
   (convert-next 100 (d/db conn) (d/log conn) (crux/db system))
 
@@ -87,8 +78,12 @@
     (crux/submit-tx system tx)))
 
 (comment
-  (defonce conn (datomic-conn))
-  (defonce system (crux-system))
+  (do
+    (require '[clojure.java.shell :as sh])
+    (sh/sh "rm" "-rf" "event" "db")
+    (require 'dev)
+    (defonce conn (dev/datomic-conn))
+    (defonce system (dev/crux-system)))
 
   (do
     @(d/transact conn
@@ -153,7 +148,6 @@
                           :where [[?e :something/title "CCCccc"]]}
                         (d/db conn))]]))
 
-
   (crux/q (crux/db system)
           '{:find [?e]
             :where [[?e :something/title]]
@@ -179,7 +173,9 @@
             :where [[?e :something/title "ZZZzzz"]]
             :full-results? true}))
 
-(defn subscribe-datomic
+(defn- subscribe-stream
+  "Read from stream, and call f whenever something is written to it.  Will
+  perform basic throttling."
   [stream f]
   (let [s (s/batch 100 1 stream)]
     (loop []
@@ -188,10 +184,31 @@
         (recur)))))
 
 (defn wrap-datomic-queue
+  "Wrap a Datomic tx-report-queue into a manifold stream"
   [queue]
   (let [s (s/stream)]
     (s/connect queue s)
     s))
+
+(defn subscribe-datomic
+  "Subscribe to manifold stream of the datomic tx-report-queue, on
+  transactions, will write the new transactions to Crux."
+  [stream conn system]
+  (subscribe-stream
+    stream
+    (fn []
+      (doseq [tx (convert-next 100 (d/db conn) (d/log conn) (crux/db system))]
+        (crux/submit-tx system tx)))))
+
+(defn subscribe-datomic-bg
+  "Like subscribe-datomic but operates in a thread.  Thread will close when the
+  stream closes."
+  [stream conn system]
+  (doto
+    (Thread.
+      (fn []
+        (subscribe-datomic stream conn system)))
+    (.start)))
 
 (comment
   (d/tx-report-queue conn)
@@ -199,18 +216,15 @@
 
   (s/description dt-s)
 
+  (s/close! dt-s)
+
   (seq (d/tx-range (d/log conn) nil nil))
   (crux/entity (crux/db system) ::progress)
+
+  (subscribe-datomic-bg dt-s conn system)
 
   (doto
     (Thread.
       (fn []
-        (subscribe-datomic
-          dt-s
-          (fn []
-            (doseq [tx (convert-next 100 (d/db conn) (d/log conn) (crux/db system))]
-              (crux/submit-tx system tx))))))
+        (subscribe-datomic dt-s conn system)))
     (.start)))
-
-(comment
-  (d/tx-report-queue conn))
