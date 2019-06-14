@@ -78,12 +78,16 @@
     (crux/submit-tx system tx)))
 
 (comment
+
   (do
-    (require '[clojure.java.shell :as sh])
-    (sh/sh "rm" "-rf" "event" "db")
-    (require 'dev)
-    (defonce conn (dev/datomic-conn))
-    (defonce system (dev/crux-system)))
+    (.close system)
+
+    (do
+      (require '[clojure.java.shell :as sh])
+      (sh/sh "rm" "-rf" "event" "db")
+      (require 'dev)
+      (def conn (dev/datomic-conn))
+      (def system (dev/crux-system))))
 
   (do
     @(d/transact conn

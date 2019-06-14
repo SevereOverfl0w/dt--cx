@@ -5,8 +5,9 @@
 
 (defn datomic-conn
   []
-  (d/create-database "datomic:mem://foo")
-  (d/connect "datomic:mem://foo"))
+  (let [id (str (java.util.UUID/randomUUID))]
+    (d/create-database (str "datomic:mem://" id))
+    (d/connect (str "datomic:mem://" id))))
 
 (defn crux-system
   []
