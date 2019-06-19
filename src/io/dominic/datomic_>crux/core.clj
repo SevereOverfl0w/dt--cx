@@ -40,13 +40,15 @@
   "Convert a single datomic transaction to a crux transaction"
   [uri latest-db last-t transaction]
   (let [{:keys [t data]} transaction
-        db (d/as-of latest-db t)]
+        db (d/as-of latest-db t)
+        tx (d/t->tx t)
+        dt-txInstant (:db/txInstant (d/pull db [:db/txInstant] tx))]
     (conj
       (mapv (fn [doc]
               (let [crux-id (dt-id->crux-id uri (:db/id doc))]
                 (if (seq (dissoc doc :db/id))
-                  [:crux.tx/put crux-id (assoc doc :crux.db/id crux-id)]
-                  [:crux.tx/delete crux-id])))
+                  [:crux.tx/put crux-id (assoc doc :crux.db/id crux-id) dt-txInstant]
+                  [:crux.tx/delete crux-id dt-txInstant])))
             (map
               (fn [doc]
                 (into {}
